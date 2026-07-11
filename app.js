@@ -8,7 +8,7 @@ const ui = {
   stickCount: $('#stickCount'), brokenCount: $('#brokenCount'), totalWeight: $('#totalWeight'),
   deformation: $('#deformation'), maxStress: $('#maxStress'), forceMode: $('#forceMode'),
   bestWeight: $('#bestWeight'), observation: $('#observation'),
-  start: $('#startBtn'), add: $('#addWeightBtn'), reset: $('#resetBtn'), undo: $('#undoBtn'), clear: $('#clearBtn'),
+  start: $('#startBtn'), add: $('#addWeightBtn'), reset: $('#resetBtn'), undo: $('#undoBtn'), deleteStick: $('#deleteStickBtn'), clear: $('#clearBtn'),
   strength: $('#strengthInput'), strengthValue: $('#strengthValue'), weight: $('#weightSelect'), auto: $('#autoWeight'),
   tip: $('#stageTip'), mission: $('#missionText')
 };
@@ -67,6 +67,7 @@ const constraints = [];
 const anchorBodies = [];
 const nodeFrames = [];
 let selectedNode = null;
+let deleteMode = false;
 let mode = 'build';
 let broken = 0;
 let totalWeight = 0;
@@ -132,7 +133,7 @@ function clearAll() {
   clearPhysics();
   sticks.forEach(s => stickGroup.remove(s.mesh)); sticks.length = 0;
   nodes.forEach(n => nodeGroup.remove(n.mesh)); nodes.length = 0;
-  selectedNode = null; mode = 'build'; setButtons(); updateStats();
+  selectedNode = null; deleteMode = false; mode = 'build'; setButtons(); updateStats();
 }
 
 function baseNodes(extraHeights = true) {
@@ -144,6 +145,10 @@ function baseNodes(extraHeights = true) {
       createNode(x, 4, -1.25, false);
       createNode(x, 4, 1.25, false);
     }
+  });
+  [-6.8, 6.8].forEach(x => {
+    createNode(x, 4, -1.25, true);
+    createNode(x, 4, 1.25, true);
   });
 }
 
@@ -212,7 +217,7 @@ function endpointLocal(stick, nodeIndex) {
 
 function beginSimulation() {
   if (sticks.length < 3) { say('橋梁至少需要 3 根竹筷才能開始測試。'); return; }
-  mode = 'simulate'; selectedNode = null; clearPhysics();
+  mode = 'simulate'; selectedNode = null; deleteMode = false; clearPhysics();
   sticks.forEach(createBodyForStick);
   const nodeLinks = nodes.map(() => []);
   sticks.forEach((s, si) => { nodeLinks[s.a].push({s, si}); nodeLinks[s.b].push({s, si}); });
@@ -386,15 +391,46 @@ function updateStats() {
 }
 function setButtons() {
   const building = mode==='build'; ui.start.disabled=!building; ui.add.disabled=mode!=='simulate'; ui.reset.disabled=building;
-  ui.undo.disabled=!building; ui.clear.disabled=!building; ui.tip.textContent=building?'搭建模式：請點選兩個節點':'模擬模式：拖曳旋轉視角，觀察受力';
+  ui.undo.disabled=!building; ui.deleteStick.disabled=!building; ui.clear.disabled=!building;
+  ui.deleteStick.classList.toggle('active', building && deleteMode);
+  ui.deleteStick.setAttribute('aria-pressed', building && deleteMode ? 'true' : 'false');
+  ui.tip.textContent=building?(deleteMode?'刪除模式：點選要移除的竹筷':'搭建模式：請點選兩個節點'):'模擬模式：拖曳旋轉視角，觀察受力';
 }
 function say(text){ ui.observation.textContent=text; }
 
 const raycaster = new THREE.Raycaster(); const pointer = new THREE.Vector2();
+function nearestStickAt(clientX, clientY, rect) {
+  const click = new THREE.Vector2(clientX - rect.left, clientY - rect.top);
+  let nearest = null; let nearestDistance = 14;
+  sticks.forEach(stick => {
+    const endpoints = [nodes[stick.a].pos, nodes[stick.b].pos].map(pos => {
+      const projected = pos.clone().project(camera);
+      return new THREE.Vector2((projected.x + 1) * rect.width / 2, (1 - projected.y) * rect.height / 2);
+    });
+    const segment = endpoints[1].clone().sub(endpoints[0]);
+    const lengthSquared = segment.lengthSq();
+    const t = lengthSquared ? THREE.MathUtils.clamp(click.clone().sub(endpoints[0]).dot(segment) / lengthSquared, 0, 1) : 0;
+    const distance = click.distanceTo(endpoints[0].clone().addScaledVector(segment, t));
+    if (distance < nearestDistance) { nearestDistance = distance; nearest = stick; }
+  });
+  return nearest;
+}
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   if (mode!=='build') return;
   const rect=renderer.domElement.getBoundingClientRect(); pointer.x=((e.clientX-rect.left)/rect.width)*2-1; pointer.y=-((e.clientY-rect.top)/rect.height)*2+1;
-  raycaster.setFromCamera(pointer,camera); const hit=raycaster.intersectObjects(nodes.map(n=>n.mesh))[0]; if(!hit)return;
+  raycaster.setFromCamera(pointer,camera);
+  if (deleteMode) {
+    const hit = raycaster.intersectObjects(sticks.map(s => s.mesh))[0];
+    const target = hit ? sticks.find(s => s.mesh === hit.object) : nearestStickAt(e.clientX, e.clientY, rect);
+    if (!target) { say('請直接點選要刪除的竹筷。'); return; }
+    const index = sticks.indexOf(target);
+    if (index < 0) return;
+    stickGroup.remove(sticks[index].mesh); sticks.splice(index, 1); updateStats();
+    say('已刪除一根竹筷。可以繼續刪除，或關閉刪除模式。');
+    return;
+  }
+  const hit=raycaster.intersectObjects(nodes.map(n=>n.mesh))[0]; if(!hit)return;
   const idx=hit.object.userData.nodeIndex;
   if(selectedNode===null){selectedNode=idx;hit.object.scale.setScalar(1.55);say('已選第一個節點，再選另一個節點放上竹筷。');}
   else {nodes[selectedNode].mesh.scale.setScalar(1);addStick(selectedNode,idx);selectedNode=null;say('放好一根竹筷。繼續搭建，或開始承重測試。');}
@@ -408,6 +444,12 @@ requestAnimationFrame(animate);
 
 ui.start.addEventListener('click',beginSimulation); ui.add.addEventListener('click',addWeight); ui.reset.addEventListener('click',resetBuild);
 ui.undo.addEventListener('click',()=>{if(!sticks.length)return;const s=sticks.pop();stickGroup.remove(s.mesh);updateStats();});
+ui.deleteStick.addEventListener('click',()=>{
+  if(mode!=='build') return;
+  if(selectedNode!==null){nodes[selectedNode].mesh.scale.setScalar(1);selectedNode=null;}
+  deleteMode=!deleteMode; setButtons();
+  say(deleteMode?'刪除模式已開啟：點選畫面中的竹筷即可移除。':'已回到搭建模式，請點選兩個節點放上竹筷。');
+});
 ui.clear.addEventListener('click',()=>loadTemplate('blank'));
 ui.strength.addEventListener('input',()=>ui.strengthValue.textContent=`${ui.strength.value}%`);
 document.querySelectorAll('[data-template]').forEach(b=>b.addEventListener('click',()=>loadTemplate(b.dataset.template)));

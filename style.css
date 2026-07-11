@@ -39,6 +39,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { background: var(--mint); color: white; border-color: var(--mint); }
 button.ghost { background: rgba(255,255,255,.65); }
 button.danger-lite { color: #b34b4b; }
+button.danger-lite.active { color: white; background: var(--red); border-color: var(--red); }
 button.full { width: 100%; }
 .topbar {
   display: flex; justify-content: space-between; align-items: center; gap: 1rem;
