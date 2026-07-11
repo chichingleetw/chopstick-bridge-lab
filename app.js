@@ -150,6 +150,10 @@ function baseNodes(extraHeights = true) {
     createNode(x, 4, -1.25, true);
     createNode(x, 4, 1.25, true);
   });
+  [-6.15, 6.15].forEach(x => {
+    createNode(x, 3.15, -1.25, true);
+    createNode(x, 3.15, 1.25, true);
+  });
 }
 
 const id = (col, side, level = 0) => col * 4 + side + level * 2;
@@ -401,7 +405,7 @@ function say(text){ ui.observation.textContent=text; }
 const raycaster = new THREE.Raycaster(); const pointer = new THREE.Vector2();
 function nearestStickAt(clientX, clientY, rect) {
   const click = new THREE.Vector2(clientX - rect.left, clientY - rect.top);
-  let nearest = null; let nearestDistance = 14;
+  let nearest = null; let nearestDistance = 22;
   sticks.forEach(stick => {
     const endpoints = [nodes[stick.a].pos, nodes[stick.b].pos].map(pos => {
       const projected = pos.clone().project(camera);
@@ -416,7 +420,7 @@ function nearestStickAt(clientX, clientY, rect) {
   return nearest;
 }
 
-renderer.domElement.addEventListener('pointerdown', (e) => {
+function handleBuildTap(e) {
   if (mode!=='build') return;
   const rect=renderer.domElement.getBoundingClientRect(); pointer.x=((e.clientX-rect.left)/rect.width)*2-1; pointer.y=-((e.clientY-rect.top)/rect.height)*2+1;
   raycaster.setFromCamera(pointer,camera);
@@ -434,7 +438,19 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   const idx=hit.object.userData.nodeIndex;
   if(selectedNode===null){selectedNode=idx;hit.object.scale.setScalar(1.55);say('已選第一個節點，再選另一個節點放上竹筷。');}
   else {nodes[selectedNode].mesh.scale.setScalar(1);addStick(selectedNode,idx);selectedNode=null;say('放好一根竹筷。繼續搭建，或開始承重測試。');}
+}
+
+let pointerStart = null;
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  pointerStart = { id: e.pointerId, x: e.clientX, y: e.clientY };
 });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!pointerStart || pointerStart.id !== e.pointerId) return;
+  const movement = Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y);
+  pointerStart = null;
+  if (movement <= 8) handleBuildTap(e);
+});
+renderer.domElement.addEventListener('pointercancel', () => { pointerStart = null; });
 
 function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
 new ResizeObserver(resize).observe(stage);
