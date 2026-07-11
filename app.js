@@ -43,8 +43,9 @@ river.rotation.x = -Math.PI / 2; river.position.y = 0; river.receiveShadow = tru
 
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
-world.solver.iterations = 26;
-world.solver.tolerance = 0.001;
+world.solver.iterations = 32;
+world.solver.tolerance = 0.0005;
+world.allowSleep = true;
 const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
 groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0); world.addBody(groundBody);
 
@@ -52,8 +53,8 @@ const stickMaterial = new CANNON.Material('stick');
 const weightMaterial = new CANNON.Material('weight');
 const groundMaterial = new CANNON.Material('ground');
 groundBody.material = groundMaterial;
-world.addContactMaterial(new CANNON.ContactMaterial(stickMaterial, stickMaterial, { friction: .65, restitution: .05 }));
-world.addContactMaterial(new CANNON.ContactMaterial(stickMaterial, weightMaterial, { friction: .8, restitution: 0 }));
+world.addContactMaterial(new CANNON.ContactMaterial(stickMaterial, stickMaterial, { friction: .65, restitution: 0, contactEquationRelaxation: 5, frictionEquationRelaxation: 5 }));
+world.addContactMaterial(new CANNON.ContactMaterial(stickMaterial, weightMaterial, { friction: .8, restitution: 0, contactEquationRelaxation: 5, frictionEquationRelaxation: 5 }));
 world.addContactMaterial(new CANNON.ContactMaterial(weightMaterial, groundMaterial, { friction: .9, restitution: .02 }));
 world.addContactMaterial(new CANNON.ContactMaterial(stickMaterial, groundMaterial, { friction: .75, restitution: .02 }));
 
@@ -198,7 +199,7 @@ function loadTemplate(name) {
 function createBodyForStick(stick) {
   const a = nodes[stick.a].pos, b = nodes[stick.b].pos;
   const mid = a.clone().add(b).multiplyScalar(.5); const length = a.distanceTo(b);
-  const body = new CANNON.Body({ mass: .1 + length*.035, material: stickMaterial, linearDamping: .09, angularDamping: .14 });
+  const body = new CANNON.Body({ mass: .1 + length*.035, material: stickMaterial, linearDamping: .16, angularDamping: .22 });
   body.addShape(new CANNON.Box(new CANNON.Vec3(.1, length/2, .1)));
   body.position.set(mid.x, mid.y, mid.z);
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), b.clone().sub(a).normalize());
@@ -241,12 +242,38 @@ function beginSimulation() {
 
 function addWeight() {
   if (mode !== 'simulate') return;
-  const kg = Number(ui.weight.value); const x = (Math.random()-.5)*1.6; const z=(Math.random()-.5)*1.1;
-  const shape = new CANNON.Box(new CANNON.Vec3(.45,.22,.45));
-  const body = new CANNON.Body({ mass: kg, shape, material: weightMaterial, linearDamping: .02, angularDamping: .08 }); body.position.set(x, 5.8 + weights.length*.48, z); world.addBody(body);
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(.9,.44,.9), new THREE.MeshStandardMaterial({color:0x506b7a, roughness:.55, metalness:.35}));
-  mesh.castShadow=true; weightGroup.add(mesh); weights.push({body,mesh,kg}); totalWeight += kg; updateStats();
+  const kg = Number(ui.weight.value);
+  const xSlots = [0, -1.5, 1.5, -3, 3];
+  const slot = weights.length % xSlots.length;
+  const layer = Math.floor(weights.length / xSlots.length);
+  const x = xSlots[slot];
+  const z = 0;
+  const deckY = deckCenterY() || initialDeckY;
+  const shape = new CANNON.Box(new CANNON.Vec3(.55,.16,1.22));
+  const startMass = Math.min(kg, .05);
+  const body = new CANNON.Body({ mass: startMass, shape, material: weightMaterial, linearDamping: .2, angularDamping: .35 });
+  body.position.set(x, deckY + .3 + layer*.34, z);
+  // Model a guided loading rig: the weight transfers force vertically without rolling off the sparse deck.
+  body.linearFactor.set(0, 1, 0);
+  body.angularFactor.set(0, 0, 0);
+  body.fixedRotation = true;
+  body.updateMassProperties();
+  body.allowSleep = true; body.sleepSpeedLimit = .12; body.sleepTimeLimit = .35;
+  world.addBody(body);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.1,.32,2.44), new THREE.MeshStandardMaterial({color:0x506b7a, roughness:.55, metalness:.35}));
+  mesh.castShadow=true; weightGroup.add(mesh); weights.push({body,mesh,kg,loadProgress:0}); totalWeight += kg; updateStats();
   say(`已放上 ${totalWeight.toFixed(1)} kg。注意中央橋面與紅色竹筷。`);
+}
+
+function rampWeightLoads(dt) {
+  weights.forEach(weight => {
+    if (weight.loadProgress >= 1) return;
+    weight.loadProgress = Math.min(1, weight.loadProgress + dt / .8);
+    const eased = weight.loadProgress * weight.loadProgress * (3 - 2 * weight.loadProgress);
+    weight.body.mass = Math.max(.05, weight.kg * eased);
+    weight.body.updateMassProperties();
+    weight.body.wakeUp();
+  });
 }
 
 function breakStick(stick) {
@@ -376,7 +403,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
 new ResizeObserver(resize).observe(stage);
 let last=performance.now();
-function animate(now){requestAnimationFrame(animate);const dt=Math.min(.04,(now-last)/1000);last=now;if(mode!=='build'){world.step(1/90,dt,6);sync();evaluateFailure();updateStats();}controls.update();renderer.render(scene,camera);}
+function animate(now){requestAnimationFrame(animate);const dt=Math.min(.04,(now-last)/1000);last=now;if(mode!=='build'){rampWeightLoads(dt);world.step(1/120,dt,8);sync();evaluateFailure();updateStats();}controls.update();renderer.render(scene,camera);}
 requestAnimationFrame(animate);
 
 ui.start.addEventListener('click',beginSimulation); ui.add.addEventListener('click',addWeight); ui.reset.addEventListener('click',resetBuild);
