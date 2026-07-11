@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="適合小學生的 3D 竹筷搭橋力學遊戲" />
+  <title>竹筷橋梁實驗室｜3D 力學遊戲</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23dff3ff'/%3E%3Cpath d='M8 44h48M12 40l10-16 10 16 10-16 10 16M18 44V26m28 18V26' stroke='%2323785a' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">國小自然 × 工程設計</p>
+      <h1>竹筷橋梁實驗室</h1>
+      <p>選兩個節點放上竹筷，完成橋梁後逐步增加配重，看看它能撐多重！</p>
+    </div>
+    <button id="helpBtn" class="ghost">玩法說明</button>
+  </header>
+
+  <main>
+    <aside class="panel controls" aria-label="建造工具">
+      <section>
+        <h2>1. 選擇範本</h2>
+        <div class="template-grid">
+          <button data-template="blank">自由搭建</button>
+          <button data-template="truss">三角桁架橋</button>
+          <button data-template="arch">拱橋</button>
+          <button data-template="cable">斜張橋</button>
+          <button data-template="suspension">吊橋</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>2. 搭建橋梁</h2>
+        <p class="hint">依序點擊兩個發光節點，即可放上一根竹筷。</p>
+        <div class="button-row">
+          <button id="undoBtn">復原一根</button>
+          <button id="clearBtn" class="danger-lite">清除橋梁</button>
+        </div>
+        <label class="range-label">
+          竹筷強度
+          <span id="strengthValue">100%</span>
+          <input id="strengthInput" type="range" min="60" max="160" value="100" step="10" />
+        </label>
+      </section>
+
+      <section>
+        <h2>3. 承重測試</h2>
+        <label>
+          每個砝碼重量
+          <select id="weightSelect">
+            <option value="0.5">0.5 kg</option>
+            <option value="1" selected>1 kg</option>
+            <option value="2">2 kg</option>
+            <option value="5">5 kg</option>
+          </select>
+        </label>
+        <div class="button-row stack-mobile">
+          <button id="startBtn" class="primary">開始模擬</button>
+          <button id="addWeightBtn" disabled>增加砝碼</button>
+          <button id="resetBtn" disabled>回到搭建</button>
+        </div>
+        <label class="switch-row">
+          <input id="autoWeight" type="checkbox" />
+          自動逐步加重
+        </label>
+      </section>
+
+      <section class="mission">
+        <h2>挑戰任務</h2>
+        <p id="missionText">用不超過 18 根竹筷，承受 8 kg。</p>
+        <button id="newMissionBtn" class="ghost full">換一個任務</button>
+      </section>
+    </aside>
+
+    <section class="stage-wrap" aria-label="3D 橋梁實驗區">
+      <div id="stage"></div>
+      <div class="stage-tip" id="stageTip">搭建模式：請點選兩個節點</div>
+      <div class="legend">
+        <span><i class="safe"></i>受力小</span>
+        <span><i class="warn"></i>受力增加</span>
+        <span><i class="danger"></i>接近斷裂</span>
+      </div>
+    </section>
+
+    <aside class="panel dashboard" aria-label="實驗與原理">
+      <div class="tabs" role="tablist" aria-label="右側資訊分頁">
+        <button class="active" data-tab="data" role="tab" aria-selected="true">數據</button>
+        <button data-tab="theory" role="tab" aria-selected="false">原理</button>
+        <button data-tab="history" role="tab" aria-selected="false">歷史</button>
+      </div>
+
+      <div class="tab-page active" data-tab-page="data">
+        <section class="score-card">
+          <p>目前總重量</p>
+          <strong><span id="totalWeight">0</span> kg</strong>
+        </section>
+        <section class="metrics">
+          <div><span>竹筷數</span><strong id="stickCount">0</strong></div>
+          <div><span>已斷裂</span><strong id="brokenCount">0</strong></div>
+          <div><span>最大形變</span><strong><span id="deformation">0.0</span> cm</strong></div>
+          <div><span>最大受力</span><strong><span id="maxStress">0</span>%</strong></div>
+          <div><span>主要狀態</span><strong id="forceMode">-</strong></div>
+          <div><span>最佳紀錄</span><strong><span id="bestWeight">0</span> kg</strong></div>
+        </section>
+        <section>
+          <h2>觀察紀錄</h2>
+          <div id="observation" class="observation">先搭建橋梁，再開始承重測試。</div>
+        </section>
+        <section>
+          <h2>想一想</h2>
+          <ul class="questions">
+            <li>三角形和四邊形，哪一種比較不容易變形？</li>
+            <li>把重量放在橋中央，哪些竹筷最容易受力？</li>
+            <li>增加橋墩或斜撐，承重會如何改變？</li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="tab-page" data-tab-page="theory">
+        <section>
+          <h2>橋為什麼會撐住？</h2>
+          <p class="info-text">橋梁把重量分散到橋墩或兩岸。好的設計會讓每根材料主要承受拉力或壓力，而不是被彎折。</p>
+        </section>
+        <section>
+          <h2>三角形的角色</h2>
+          <p class="info-text">三角形的邊長固定後，形狀不容易扭成另一個樣子；四邊形少了斜撐時，受力後容易變成平行四邊形。</p>
+        </section>
+        <section>
+          <h2>拉力、壓力、彎曲</h2>
+          <ul class="questions">
+            <li>拉力會把竹筷往兩端拉開，例如吊橋的吊索。</li>
+            <li>壓力會把竹筷往中間擠，例如拱橋把力推向兩側橋台。</li>
+            <li>彎曲最危險，因為一邊被拉、一邊被壓，材料更容易裂開。</li>
+          </ul>
+        </section>
+        <section>
+          <h2>遊戲中的簡化模型</h2>
+          <p class="info-text">這個版本會估算每個節點的位移、竹筷的拉伸或壓縮、彎曲量與晃動速度，再累積損傷。它適合比較設計，不是實驗室級精密計算。</p>
+        </section>
+      </div>
+
+      <div class="tab-page" data-tab-page="history">
+        <section>
+          <h2>塔科馬海峽大橋</h2>
+          <p class="info-text">1940 年，美國華盛頓州的塔科馬海峽大橋在強風中劇烈扭動後倒塌。它提醒工程師：橋不只要能承重，也要考慮風造成的振動。</p>
+        </section>
+        <section>
+          <h2>魁北克大橋</h2>
+          <p class="info-text">1907 年，加拿大魁北克大橋施工中倒塌，重要原因之一是部分構件承受的壓力被低估。壓力過大時，長桿可能會彎曲失穩。</p>
+        </section>
+        <section>
+          <h2>I-35W 密西西比河大橋</h2>
+          <p class="info-text">2007 年，美國明尼蘇達州 I-35W 大橋倒塌；調查指出，桁架節點的鋼板設計厚度不足，後來增加的橋面荷重也讓風險變大。</p>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="helpDialog">
+    <form method="dialog">
+      <button class="dialog-close" aria-label="關閉">×</button>
+      <h2>玩法說明</h2>
+      <ol>
+        <li>選擇橋梁範本，或從空白場地開始。</li>
+        <li>依序點擊兩個節點，放上一根竹筷；多用三角形可讓結構更穩定。</li>
+        <li>按「開始模擬」，再逐步增加砝碼。</li>
+        <li>竹筷會依受力由綠轉黃、再轉紅；超過強度時會斷裂。</li>
+        <li>橋面明顯下沉或砝碼墜落時，測試結束。</li>
+      </ol>
+      <p class="note">這是簡化的教學模擬，重點是比較不同結構，不代表真實竹筷的精確承重。</p>
+    </form>
+  </dialog>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.185.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.0/examples/jsm/",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
